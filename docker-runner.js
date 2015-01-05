@@ -152,7 +152,7 @@ var getImageId = function *() {
 };
 
 var determineImagePort = function() {
-  var hash = crypto.createHash('md5').update(getImageName()).digest('hex');
+  var hash = crypto.createHash('md5').update(options.image).digest('hex');
   var port = parseInt('0x' + hash.substr(0, 4));
   port = port % 16384 + 49152;
   return port;

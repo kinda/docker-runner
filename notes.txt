@@ -1,9 +1,9 @@
 Test with busybox:
 
-docker run --name=busybox-runner --volume=/var/run/docker.sock:/var/run/docker.sock --volume=/usr/bin/docker:/usr/bin/docker --net=host --restart=always --detach docker-runner npm start -- --name=busybox --detach --restart=image-push --restart=always -it busybox
+docker run --name=busybox-runner --volume=/var/run/docker.sock:/var/run/docker.sock --volume=/usr/bin/docker:/usr/bin/docker --net=host --restart=always --detach kinda/docker-runner npm start -- --name=busybox --detach --restart=image-push --restart=always -it busybox
 
 For avc-online (private repo):
 
-docker run --name=busybox-runner --volume=/var/run/docker.sock:/var/run/docker.sock --volume=/usr/bin/docker:/usr/bin/docker --net=host --restart=always --detach docker-runner npm start -- --name=avc-online --net=host --restart=always --restart=image-push --detach kinda/avc-online:test
+docker run --name=avc-online-runner --volume=/var/run/docker.sock:/var/run/docker.sock --volume=/usr/bin/docker:/usr/bin/docker --volume=/home/mvila/.dockercfg:/root/.dockercfg --net=host --restart=always --detach kinda/docker-runner npm start -- --name=avc-online --net=host --restart=always --restart=image-push --detach kinda/avc-online:test
 
 On OS X, replace "/usr/local/bin/docker" with "/usr/bin/docker"
