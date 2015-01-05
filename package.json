@@ -1,0 +1,26 @@
+{
+  "name": "docker-runner",
+  "version": "0.1.0",
+  "description": "...",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/kinda/docker-runner"
+  },
+  "main": "docker-runner.js",
+  "scripts": {
+    "start": "node --harmony docker-runner.js",
+    "test": "echo \"Warning: no test specified\" && exit 0"
+  },
+  "author": "Manuel Vila <mvila@3base.com>",
+  "license": "MIT",
+  "dependencies": {
+    "co": "^4.1.0",
+    "co-exec": "^1.1.0",
+    "koa": "^0.14.0",
+    "koa-body": "^0.4.0",
+    "lodash": "^2.4.1",
+    "node-shell-parser": "^0.2.0",
+    "nomnom": "^1.8.1",
+    "request": "^2.51.0"
+  }
+}
