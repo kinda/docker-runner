@@ -21,6 +21,11 @@ var options = require("nomnom")
     net: {
       help: 'Set the Network mode for the container'
     },
+    volume: {
+      abbr: 'v',
+      list: true,
+      help: 'Bind mount a volume'
+    },
     detach: {
       abbr: 'd',
       flag: true,
@@ -65,6 +70,11 @@ var runImage = function *() {
     var cmd = 'docker run';
     if (options.name) cmd += ' --name=' + options.name;
     if (options.net) cmd += ' --net=' + options.net;
+    if (options.volume) {
+      _.forEach(options.volume, function(volume) {
+        cmd += ' --volume=' + volume;
+      });
+    }
     if (options.detach) cmd += ' --detach';
     if (options.interactive) cmd += ' --interactive';
     if (options.tty) cmd += ' --tty';
