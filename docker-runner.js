@@ -89,6 +89,26 @@ var runImage = function *() {
   }
 };
 
+var removeOldImages = function *() {
+  try {
+    var output = yield exec('docker images --no-trunc');
+    output = shellParser(output, { separator: '  ' });
+    output = _.filter(output, { REPOSITORY: '<none>', TAG: '<none>' });
+    for (var i = 0; i < output.length; i++) {
+      var image = output[i];
+      var id = image['IMAGE ID']
+      try {
+        yield exec('docker rmi ' + id);
+        console.log('Image ' + id + ' removed');
+      } catch (err) {
+        console.error(err.message);
+      }
+    }
+  } finally {
+    console.log('removeOldImages: done');
+  }
+};
+
 var listenImagePush = function *() {
   var port = determineImagePort();
   var app = koa();
@@ -108,6 +128,7 @@ var listenImagePush = function *() {
             yield stopContainer();
             yield removeContainer();
             yield runImage();
+            yield removeOldImages();
           }
         } catch (e) {
           err = e;
@@ -211,6 +232,7 @@ var main = function *() {
     yield stopContainer();
     yield removeContainer();
     yield runImage();
+    yield removeOldImages();
   }
   if (_.contains(options.restart, 'image-push')) {
     yield listenImagePush();
