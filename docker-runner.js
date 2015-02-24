@@ -93,7 +93,8 @@ var removeOldImages = function *() {
   try {
     var output = yield exec('docker images --no-trunc');
     output = shellParser(output, { separator: '  ' });
-    output = _.filter(output, { REPOSITORY: '<none>', TAG: '<none>' });
+    output = _.filter(output, 'REPOSITORY', '<none>');
+    output = _.filter(output, 'TAG', '<none>');
     for (var i = 0; i < output.length; i++) {
       var image = output[i];
       var id = image['IMAGE ID']
@@ -173,9 +174,8 @@ var getImageTag = function() {
 var getImageId = function *() {
   var output = yield exec('docker images --no-trunc');
   output = shellParser(output, { separator: '  ' });
-  output = _.find(output, {
-    REPOSITORY: getImageName(),
-    TAG: getImageTag()
+  output = _.find(output, function(image) {
+    return image.REPOSITORY === getImageName() && image.TAG === getImageTag();
   });
   if (!output) return;
   var id = output['IMAGE ID'];
@@ -214,7 +214,7 @@ var removeContainer = function *() {
 var getContainerId = function *(name) {
   var output = yield exec('docker ps --all --no-trunc');
   output = shellParser(output, { separator: '  ' });
-  output = _.find(output, { NAMES: name });
+  output = _.find(output, 'NAMES', name);
   if (!output) return;
   var id = output['CONTAINER ID'];
   return id;
