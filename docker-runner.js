@@ -1,18 +1,17 @@
 'use strict';
 
-var crypto = require('crypto');
-var _ = require('lodash');
-var co = require('co');
-var exec = require('co-exec');
-var shellParser = require('node-shell-parser');
-var koa = require('koa');
-var body = require('koa-body');
-var request = require('request');
+import crypto from 'crypto';
+import _ from 'lodash';
+import nomnom from 'nomnom';
+import Docker from 'dockerode-promise';
+import koa from 'koa';
+import body from 'koa-body';
+import request from 'request';
 
-var WEBHOOK_URL = '/v1/docker-images/push';
+let WEBHOOK_URL = '/v1/docker-images/push';
 
-var options = require("nomnom")
-  .script("docker-runner")
+let options = nomnom
+  .script('docker-runner')
   .options({
     name: {
       required: true, // TODO: should be optional
@@ -32,11 +31,11 @@ var options = require("nomnom")
       required: true, // TODO: should be optional
       help: 'Detached mode: run the container in the background'
     },
-    interactive: {
-      abbr: 'i',
-      flag: true,
-      help: 'Keep STDIN open even if not attached'
-    },
+    // interactive: {
+    //   abbr: 'i',
+    //   flag: true,
+    //   help: 'Keep STDIN open even if not attached'
+    // },
     tty: {
       abbr: 't',
       flag: true,
@@ -51,56 +50,80 @@ var options = require("nomnom")
       required: true,
       help: 'Image to pull and run'
     },
+    authConfig: {
+      full: 'auth-config',
+      help: 'Registry authConfig value'
+    }
   })
   .parse();
 
-var pullImage = function *() {
+let docker = new Docker();
+
+async function pullImage() {
   try {
-    var previousId = yield getImageId();
-    yield exec('docker pull ' + options.image);
-    var currentId = yield getImageId();
+    let previousId = await getImageId();
+    let opts = {};
+    if (options.authConfig) opts.authconfig = { key: options.authConfig };
+    let stream = await docker.pull(options.image, opts);
+    await awaitStream(stream);
+    let currentId = await getImageId();
     return currentId !== previousId;
   } finally {
     console.log('pullImage: done');
   }
-};
+}
 
-var runImage = function *() {
+function awaitStream(stream) {
+  return new Promise(function(resolve, reject) {
+    docker.$subject.modem.followProgress(
+      stream,
+      function(err, output) { // onFinished
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(output);
+      },
+      function(event) { // onProgress
+        if (event.progressDetail) return;
+        if (event.status) console.log(event.status);
+      }
+    );
+  });
+}
+
+async function runImage() {
   try {
-    var cmd = 'docker run';
-    if (options.name) cmd += ' --name=' + options.name;
-    if (options.net) cmd += ' --net=' + options.net;
-    if (options.volume) {
-      _.forEach(options.volume, function(volume) {
-        cmd += ' --volume=' + volume;
-      });
-    }
-    if (options.detach) cmd += ' --detach';
-    if (options.interactive) cmd += ' --interactive';
-    if (options.tty) cmd += ' --tty';
+    let createOptions = { Image: options.image };
+    let startOptions = {};
+    if (options.name) createOptions.name = options.name;
+    if (options.net) startOptions.NetworkMode = options.net;
+    if (options.volume) startOptions.Binds = options.volume;
+    if (!options.detach) throw new Error('non detached mode is unsupported');
+    if (options.tty) createOptions.Tty = true;
     if (options.restart) {
-      if (_.contains(options.restart, 'always')) cmd += ' --restart=always';
+      if (options.restart.includes('always')) {
+        startOptions.RestartPolicy = { Name: 'always' };
+      }
       // TODO: support more restart policies
-    };
-    cmd += ' ' + options.image;
-    yield exec(cmd);
+    }
+    let container = await docker.createContainer(createOptions);
+    await container.start(startOptions);
   } finally {
     console.log('runImage: done');
   }
-};
+}
 
-var removeOldImages = function *() {
+async function removeOldImages() {
   try {
-    var output = yield exec('docker images --no-trunc');
-    output = shellParser(output, { separator: '  ' });
-    output = _.filter(output, 'REPOSITORY', '<none>');
-    output = _.filter(output, 'TAG', '<none>');
-    for (var i = 0; i < output.length; i++) {
-      var image = output[i];
-      var id = image['IMAGE ID']
+    let images = await docker.listImages();
+    images = images.filter(function(image) {
+      return _.isEqual(image.RepoTags, ['<none>:<none>']);
+    });
+    for (let image of images) {
       try {
-        yield exec('docker rmi ' + id);
-        console.log('Image ' + id + ' removed');
+        await docker.getImage(image.Id).remove();
+        console.log('Image ' + image.Id + ' removed');
       } catch (err) {
         console.error(err.message);
       }
@@ -108,40 +131,35 @@ var removeOldImages = function *() {
   } finally {
     console.log('removeOldImages: done');
   }
-};
+}
 
-var listenImagePush = function *() {
-  var port = determineImagePort();
-  var app = koa();
+async function listenImagePush() {
+  let port = determineImagePort();
+  let app = koa();
   app.use(body());
   app.use(function *(next) {
     if (this.method === 'POST' && this.url === WEBHOOK_URL) {
-      var payload = this.request.body;
-      var err;
-      var repoName = payload.repository.repo_name;
-      var name = getImageName();
+      let payload = this.request.body;
+      let err;
+      let repoName = payload.repository.repo_name;
+      let name = getImageName();
       if (repoName !== name) {
         err = new Error('webhook triggered for a different image name ("' + repoName + '" instead of "' + name + '")');
       }
       if (!err) {
         try {
-          if (yield pullImage()) {
-            yield stopContainer();
-            yield removeContainer();
-            yield runImage();
-            yield removeOldImages();
-          }
+          yield check();
         } catch (e) {
           err = e;
         }
       }
       if (err) console.error(err);
-      var callbackURL = payload.callback_url;
-      var body = { state: (err ? 'error' : 'success') };
+      let callbackURL = payload.callback_url;
+      let body = { state: (err ? 'error' : 'success') };
       request({
         method: 'post',
         url: callbackURL,
-        body: body,
+        body,
         json: true
       }, function(err) {
         if (err) console.error(err);
@@ -152,95 +170,90 @@ var listenImagePush = function *() {
     yield next;
   });
   app.listen(port, function() {
-    var url = 'http://<domain.name>:' + port + WEBHOOK_URL;
+    let url = 'http://<domain.name>:' + port + WEBHOOK_URL;
     console.log('listenImagePush: running on ' + url);
   });
-};
+}
 
-var getImageName = function() {
-  var name = options.image;
-  var index = name.indexOf(':');
+function getImageName() {
+  let name = options.image;
+  let index = name.indexOf(':');
   if (index !== -1) name = name.substr(0, index);
   return name;
-};
+}
 
-var getImageTag = function() {
-  var name = options.image;
-  var index = name.indexOf(':');
-  var tag = index !== -1 ? name.substr(index + 1) : 'latest';
-  return tag;
-};
+// function getImageTag() {
+//   let name = options.image;
+//   let index = name.indexOf(':');
+//   let tag = index !== -1 ? name.substr(index + 1) : 'latest';
+//   return tag;
+// }
 
-var getImageId = function *() {
-  var output = yield exec('docker images --no-trunc');
-  output = shellParser(output, { separator: '  ' });
-  output = _.find(output, function(image) {
-    return image.REPOSITORY === getImageName() && image.TAG === getImageTag();
+async function getImageId() {
+  let images = await docker.listImages();
+  let image = images.find(function(image) {
+    return image.RepoTags.includes(options.image);
   });
-  if (!output) return;
-  var id = output['IMAGE ID'];
-  return id;
-};
+  return image && image.Id;
+}
 
-var determineImagePort = function() {
-  var hash = crypto.createHash('md5').update(options.image).digest('hex');
-  var port = parseInt('0x' + hash.substr(0, 4));
+function determineImagePort() {
+  let hash = crypto.createHash('md5').update(options.image).digest('hex');
+  let port = parseInt('0x' + hash.substr(0, 4), 16);
   port = port % 16384 + 49152;
   return port;
-};
+}
 
-var stopContainer = function *() {
+async function stopContainer() {
   try {
-    var id = yield getContainerId(options.name);
+    let id = await getContainerId(options.name);
     if (!id) return;
-    var container = yield inspectContainer(id);
-    if (!container.State.Running) return;
-    yield exec('docker stop ' + id);
+    let container = docker.getContainer(id);
+    let output = await container.inspect();
+    if (!output.State.Running) return;
+    await container.stop();
   } finally {
     console.log('stopContainer: done');
   }
-};
+}
 
-var removeContainer = function *() {
+async function removeContainer() {
   try {
-    var id = yield getContainerId(options.name);
+    let id = await getContainerId(options.name);
     if (!id) return;
-    yield exec('docker rm ' + id);
+    let container = docker.getContainer(id);
+    await container.remove();
   } finally {
     console.log('removeContainer: done');
   }
-};
+}
 
-var getContainerId = function *(name) {
-  var output = yield exec('docker ps --all --no-trunc');
-  output = shellParser(output, { separator: '  ' });
-  output = _.find(output, 'NAMES', name);
-  if (!output) return;
-  var id = output['CONTAINER ID'];
-  return id;
-};
+async function getContainerId(name) {
+  let containers = await docker.listContainers({ all: true });
+  let container = containers.find(function(container) {
+    return container.Names.includes('/' + name);
+  });
+  return container && container.Id;
+}
 
-var inspectContainer = function *(id) {
-  var output = yield exec('docker inspect ' + id);
-  output = JSON.parse(output);
-  var container = output[0];
-  return container;
-};
-
-var main = function *() {
-  if (yield pullImage()) {
-    yield stopContainer();
-    yield removeContainer();
-    yield runImage();
-    yield removeOldImages();
+async function check() {
+  if (await pullImage()) {
+    await stopContainer();
+    await removeContainer();
+    await runImage();
+    await removeOldImages();
   }
-  if (_.contains(options.restart, 'image-push')) {
-    yield listenImagePush();
-  }
-};
+}
 
-co(function *() {
-  yield main();
-}).catch(function(err) {
+async function main() {
+  await check();
+  let id = await getContainerId(options.name);
+  if (!id) await runImage();
+  if (options.restart && options.restart.includes('image-push')) {
+    await listenImagePush();
+  }
+}
+
+main().catch(function(err) {
   console.error(err.stack);
 });
