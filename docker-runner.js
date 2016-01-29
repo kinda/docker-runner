@@ -25,6 +25,11 @@ let options = nomnom
       list: true,
       help: 'Bind mount a volume'
     },
+    env: {
+      abbr: 'e',
+      list: true,
+      help: 'Set environment variables'
+    },
     detach: {
       abbr: 'd',
       flag: true,
@@ -99,6 +104,7 @@ async function runImage() {
     if (options.name) createOptions.name = options.name;
     if (options.net) startOptions.NetworkMode = options.net;
     if (options.volume) startOptions.Binds = options.volume;
+    if (options.env) createOptions.Env = options.env;
     if (!options.detach) throw new Error('non detached mode is unsupported');
     if (options.tty) createOptions.Tty = true;
     if (options.restart) {
