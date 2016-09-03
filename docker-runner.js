@@ -131,7 +131,7 @@ async function removeOldImages() {
         await docker.getImage(image.Id).remove();
         console.log('Image ' + image.Id + ' removed');
       } catch (err) {
-        console.error(err.message);
+        console.error(err);
       }
     }
   } finally {
@@ -261,5 +261,5 @@ async function main() {
 }
 
 main().catch(function(err) {
-  console.error(err.stack);
+  console.error(err);
 });
